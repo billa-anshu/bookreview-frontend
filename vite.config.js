@@ -10,7 +10,9 @@ export default defineConfig({
     }
   },
   server: {
-    port: 3000
-    // Remove the proxy section entirely
+    port: 3000,
+    hmr: {
+      overlay: true 
+    }
   }
 })
