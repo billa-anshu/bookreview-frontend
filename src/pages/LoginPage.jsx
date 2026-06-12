@@ -8,13 +8,12 @@ import { useAuth } from '@/contexts/AuthContext.jsx';
 import { BookOpen, Chrome, Github } from 'lucide-react';
 import { toast } from 'sonner';
 
-// Get backend URL from environment variable
 const API_BASE_URL = import.meta.env.VITE_API_URL;
 
 const LoginPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();
+  const { login, updateUser } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -22,43 +21,48 @@ const LoginPage = () => {
 
   const from = location.state?.from?.pathname || '/';
 
-  // Handle OAuth callback when redirected back from backend
+  // Listen for OAuth message from popup window
   useEffect(() => {
-    // Check if this is an OAuth callback (URL has token in params)
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    const userId = urlParams.get('userId');
-    const name = urlParams.get('name');
-    const email = urlParams.get('email');
-    const role = urlParams.get('role');
-    const error = urlParams.get('error');
+    const handleOAuthMessage = (event) => {
+      // IMPORTANT: In production, change this to your Render URL
+      // For now, accept messages from localhost:8080 (backend) and your Vercel frontend
+      const allowedOrigins = [
+        'http://localhost:8080',
+        'https://your-backend.onrender.com' // Change to your actual Render URL
+      ];
+      
+      if (!allowedOrigins.includes(event.origin)) {
+        console.log('Ignored message from origin:', event.origin);
+        return;
+      }
+      
+      const data = event.data;
+      if (data.type === 'oauth-success') {
+        console.log('OAuth success message received:', data);
+        
+        // Store token and user data
+        localStorage.setItem('token', data.token);
+        const userData = {
+          id: data.userId,
+          name: data.name,
+          email: data.email,
+          role: data.role
+        };
+        localStorage.setItem('user', JSON.stringify(userData));
+        
+        // Update auth context
+        if (updateUser) {
+          updateUser(userData);
+        }
+        
+        toast.success(`Welcome ${data.name || 'User'}!`);
+        navigate(from, { replace: true });
+      }
+    };
     
-    if (error) {
-      toast.error(`OAuth login failed: ${error}`);
-      // Clean URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-      return;
-    }
-    
-    if (token && userId) {
-      console.log('OAuth login detected, saving user data');
-      
-      // Save to localStorage
-      localStorage.setItem('token', token);
-      const userData = { 
-        id: userId, 
-        name: decodeURIComponent(name || ''), 
-        email: email || '', 
-        role: role || 'USER' 
-      };
-      localStorage.setItem('user', JSON.stringify(userData));
-      
-      toast.success(`Welcome ${userData.name || 'User'}!`);
-      
-      // Clean URL and redirect to home or intended page
-      window.location.href = from;
-    }
-  }, [from]);
+    window.addEventListener('message', handleOAuthMessage);
+    return () => window.removeEventListener('message', handleOAuthMessage);
+  }, [navigate, from, updateUser]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -87,19 +91,29 @@ const LoginPage = () => {
   const handleOAuthLogin = (provider) => {
     if (!API_BASE_URL) {
       console.error('VITE_API_URL is not configured');
-      toast.error('Login service not configured. Please contact support.');
+      toast.error('Login service not configured');
       return;
     }
-    
-    // Full page redirect instead of popup (simpler and more reliable)
-    const oauthUrl = `${API_BASE_URL}/oauth2/authorization/${provider}`;
-    console.log(`Redirecting to ${provider}:`, oauthUrl);
     
     // Store current location to return after OAuth
     localStorage.setItem('oauthReturnPath', from);
     
-    // Redirect to backend OAuth endpoint
-    window.location.href = oauthUrl;
+    // Calculate popup position
+    const width = 500;
+    const height = 600;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    
+    // Open popup
+    const popup = window.open(
+      `${API_BASE_URL}/oauth2/authorization/${provider}`,
+      'oauth-popup',
+      `width=${width},height=${height},left=${left},top=${top}`
+    );
+    
+    if (!popup) {
+      toast.error('Popup was blocked. Please allow popups for this site.');
+    }
   };
 
   const loadDemoUser = () => {
@@ -167,22 +181,12 @@ const LoginPage = () => {
           </Button>
         </form>
 
-        {/* Demo buttons (keep for testing) */}
+        {/* Demo buttons */}
         <div className="grid grid-cols-2 gap-3 mt-4">
-          <Button 
-            type="button"
-            variant="secondary" 
-            size="sm"
-            onClick={loadDemoUser}
-          >
+          <Button type="button" variant="secondary" size="sm" onClick={loadDemoUser}>
             Demo User
           </Button>
-          <Button 
-            type="button"
-            variant="secondary" 
-            size="sm"
-            onClick={loadAdminUser}
-          >
+          <Button type="button" variant="secondary" size="sm" onClick={loadAdminUser}>
             Admin Demo
           </Button>
         </div>
