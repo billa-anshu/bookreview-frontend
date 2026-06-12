@@ -181,15 +181,6 @@ const LoginPage = () => {
           </Button>
         </form>
 
-        {/* Demo buttons */}
-        <div className="grid grid-cols-2 gap-3 mt-4">
-          <Button type="button" variant="secondary" size="sm" onClick={loadDemoUser}>
-            Demo User
-          </Button>
-          <Button type="button" variant="secondary" size="sm" onClick={loadAdminUser}>
-            Admin Demo
-          </Button>
-        </div>
 
         <div className="relative my-6">
           <div className="absolute inset-0 flex items-center">
