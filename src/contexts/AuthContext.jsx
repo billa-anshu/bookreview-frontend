@@ -17,26 +17,72 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Initialize auth from localStorage
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const savedUser = localStorage.getItem('user');
-    
-    console.log('Auth Init - Token exists:', !!token);
-    console.log('Auth Init - Saved user:', savedUser);
-    
-    if (token && savedUser) {
-      try {
-        const parsedUser = JSON.parse(savedUser);
-        console.log('Restored user from localStorage:', parsedUser);
-        setCurrentUser(parsedUser);
-      } catch (e) {
-        console.error('Error parsing saved user:', e);
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+    const initializeAuth = () => {
+      const token = localStorage.getItem('token');
+      const savedUser = localStorage.getItem('user');
+      
+      console.log('Auth Init - Token exists:', !!token);
+      console.log('Auth Init - Saved user:', savedUser);
+      
+      if (token && savedUser) {
+        try {
+          const parsedUser = JSON.parse(savedUser);
+          console.log('Restored user from localStorage:', parsedUser);
+          setCurrentUser(parsedUser);
+        } catch (e) {
+          console.error('Error parsing saved user:', e);
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+        }
       }
+      
+      setLoading(false);
+    };
+    
+    initializeAuth();
+  }, []);
+
+  // Check for OAuth callback on mount (for full page redirect)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    const userId = urlParams.get('userId');
+    const name = urlParams.get('name');
+    const email = urlParams.get('email');
+    const role = urlParams.get('role');
+    const errorParam = urlParams.get('error');
+    
+    if (errorParam) {
+      console.error('OAuth error:', errorParam);
+      toast.error(`Login failed: ${errorParam}`);
+      // Clean URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
     }
     
-    setLoading(false);
+    if (token && userId) {
+      console.log('OAuth callback detected with token');
+      
+      // Save to localStorage
+      localStorage.setItem('token', token);
+      const userData = {
+        id: userId,
+        name: decodeURIComponent(name || 'User'),
+        email: email || '',
+        role: role || 'USER'
+      };
+      localStorage.setItem('user', JSON.stringify(userData));
+      
+      // Set current user
+      setCurrentUser(userData);
+      
+      toast.success(`Welcome ${userData.name}!`);
+      
+      // Clean URL and redirect to home
+      window.location.href = '/';
+    }
   }, []);
 
   const login = async (email, password) => {
@@ -106,6 +152,7 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setCurrentUser(null);
+    toast.info('You have been logged out');
   };
 
   // Update user in state and localStorage
@@ -161,8 +208,27 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Force refresh user data from backend
+  const refreshUser = async () => {
+    try {
+      const response = await users.getMe();
+      if (response?.data) {
+        const updatedUser = { ...currentUser, ...response.data };
+        setCurrentUser(updatedUser);
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        console.log('User refreshed:', updatedUser);
+        return { success: true, data: response.data };
+      }
+      return { success: false, error: 'Failed to refresh user' };
+    } catch (err) {
+      console.error('Error refreshing user:', err);
+      return { success: false, error: err.response?.data?.error || 'Refresh failed' };
+    }
+  };
+
   const value = {
     currentUser,
+    setCurrentUser,  // ← EXPORTING THIS (needed for OAuth callbacks)
     isAuthenticated: !!currentUser,
     userRole: currentUser?.role || null,
     login,
@@ -171,6 +237,7 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     uploadProfilePicture,
     updateUser,
+    refreshUser,  // ← NEW: Force refresh user data
     loading,
     error
   };
