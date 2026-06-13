@@ -21,18 +21,59 @@ const LoginPage = () => {
 
   const from = location.state?.from?.pathname || '/';
 
-  // Listen for OAuth message from popup window
+  // Check for OAuth callback in URL (for full page redirect method)
   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    const userId = urlParams.get('userId');
+    const name = urlParams.get('name');
+    const emailParam = urlParams.get('email');
+    const role = urlParams.get('role');
+    const errorParam = urlParams.get('error');
+    
+    if (errorParam) {
+      toast.error(`Login failed: ${errorParam}`);
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+    
+    if (token && userId) {
+      console.log('OAuth callback detected with token');
+      
+      // Save to localStorage
+      localStorage.setItem('token', token);
+      const userData = {
+        id: userId,
+        name: decodeURIComponent(name || 'User'),
+        email: emailParam || '',
+        role: role || 'USER'
+      };
+      localStorage.setItem('user', JSON.stringify(userData));
+      
+      // Update auth context
+      if (updateUser) {
+        updateUser(userData);
+      }
+      
+      toast.success(`Welcome ${userData.name}!`);
+      
+      // Clean URL and redirect
+      window.location.href = from;
+      return;
+    }
+    
+    // Listen for OAuth message from popup window
     const handleOAuthMessage = (event) => {
-      // IMPORTANT: In production, change this to your Render URL
-      // For now, accept messages from localhost:8080 (backend) and your Vercel frontend
+      console.log('Message received from origin:', event.origin);
+      
+      // Accept from your backend URL
       const allowedOrigins = [
         'http://localhost:8080',
-        'https://your-backend.onrender.com' // Change to your actual Render URL
+        'https://bookreview-api-dqxd.onrender.com'
       ];
       
       if (!allowedOrigins.includes(event.origin)) {
-        console.log('Ignored message from origin:', event.origin);
+        console.log('Origin not allowed:', event.origin);
         return;
       }
       
@@ -56,7 +97,15 @@ const LoginPage = () => {
         }
         
         toast.success(`Welcome ${data.name || 'User'}!`);
+        
+        // Close popup if it exists
+        if (window.opener && !window.opener.closed) {
+          window.close();
+        }
+        
+        // Navigate to home
         navigate(from, { replace: true });
+        window.location.reload(); // Force reload to update auth state
       }
     };
     
@@ -95,25 +144,15 @@ const LoginPage = () => {
       return;
     }
     
-    // Store current location to return after OAuth
+    // Use full page redirect instead of popup for reliability
+    const oauthUrl = `${API_BASE_URL}/oauth2/authorization/${provider}`;
+    console.log('Redirecting to:', oauthUrl);
+    
+    // Store return path
     localStorage.setItem('oauthReturnPath', from);
     
-    // Calculate popup position
-    const width = 500;
-    const height = 600;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
-    
-    // Open popup
-    const popup = window.open(
-      `${API_BASE_URL}/oauth2/authorization/${provider}`,
-      'oauth-popup',
-      `width=${width},height=${height},left=${left},top=${top}`
-    );
-    
-    if (!popup) {
-      toast.error('Popup was blocked. Please allow popups for this site.');
-    }
+    // Full page redirect (most reliable)
+    window.location.href = oauthUrl;
   };
 
   const loadDemoUser = () => {
@@ -180,8 +219,6 @@ const LoginPage = () => {
             {loading ? 'Logging in...' : 'Log in'}
           </Button>
         </form>
-
-
         <div className="relative my-6">
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-border"></div>
