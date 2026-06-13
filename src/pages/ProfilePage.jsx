@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { useAuth } from '@/contexts/AuthContext.jsx';
@@ -11,7 +11,7 @@ import Header from '@/components/Header.jsx';
 import Footer from '@/components/Footer.jsx';
 import ReviewCard from '@/components/ReviewCard.jsx';
 import { reviews, books, users } from '@/services/api';
-import { User, LogOut, BookOpen, Star, CalendarDays, Edit3, Camera, X } from 'lucide-react';
+import { User, LogOut, BookOpen, Star, CalendarDays, Edit3, Camera } from 'lucide-react';
 import { toast } from 'sonner';
 
 const ProfilePage = () => {
@@ -29,7 +29,6 @@ const ProfilePage = () => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editName, setEditName] = useState('');
   const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (currentUser) {
@@ -44,10 +43,7 @@ const ProfilePage = () => {
       const response = await users.getMe();
       if (response?.data?.createdAt) {
         const date = new Date(response.data.createdAt);
-        setMemberSince(date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
-      } else if (currentUser?.createdAt) {
-        const date = new Date(currentUser.createdAt);
-        setMemberSince(date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
+        setMemberSince(date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' }));
       } else {
         setMemberSince('2024');
       }
@@ -61,37 +57,38 @@ const ProfilePage = () => {
     setLoading(true);
     try {
       const myReviewsResponse = await reviews.getMyReviews();
+      const userReviewsData = Array.isArray(myReviewsResponse?.data) ? myReviewsResponse.data : [];
       
-      let userReviews = [];
-      if (myReviewsResponse?.data) {
-        userReviews = Array.isArray(myReviewsResponse.data) ? myReviewsResponse.data : [];
-      } else if (Array.isArray(myReviewsResponse)) {
-        userReviews = myReviewsResponse;
-      }
+      setUserReviews(userReviewsData);
       
-      setUserReviews(userReviews);
-      
-      const total = userReviews.length;
+      const total = userReviewsData.length;
       const avg = total > 0 
-        ? userReviews.reduce((acc, curr) => acc + (curr.rating || 0), 0) / total
+        ? userReviewsData.reduce((acc, curr) => acc + (curr.rating || 0), 0) / total
         : 0;
       setTotalReviews(total);
       setAvgRating(avg);
       
-      const bookDetailsMap = {};
-      for (const review of userReviews) {
-        const bookId = review.book?.id || review.bookId;
-        if (bookId && !bookDetailsMap[bookId]) {
+      // Load book details in parallel for better performance
+      const bookPromises = userReviewsData
+        .filter(review => review.book?.id || review.bookId)
+        .map(async (review) => {
+          const bookId = review.book?.id || review.bookId;
           try {
             const bookData = await books.getById(bookId);
-            if (bookData?.data) {
-              bookDetailsMap[bookId] = bookData.data;
-            }
+            return { bookId, book: bookData?.data };
           } catch (err) {
             console.error('Error loading book:', bookId, err);
+            return { bookId, book: null };
           }
+        });
+      
+      const bookResults = await Promise.all(bookPromises);
+      const bookDetailsMap = {};
+      bookResults.forEach(result => {
+        if (result.book) {
+          bookDetailsMap[result.bookId] = result.book;
         }
-      }
+      });
       setBookMap(bookDetailsMap);
       
     } catch (error) {
@@ -111,7 +108,6 @@ const ProfilePage = () => {
     const result = await updateProfile({ name: editName });
     if (result.success) {
       setIsEditDialogOpen(false);
-      loadMemberSince();
     }
   };
 
@@ -171,11 +167,15 @@ const ProfilePage = () => {
   };
 
   if (!currentUser) {
-    return null;
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
   }
 
- const avatarUrl = currentUser.profilePictureUrl 
-    ? currentUser.profilePictureUrl  // This will be like "/uploads/profiles/xxx.jpg"
+  const avatarUrl = currentUser.profilePictureUrl 
+    ? currentUser.profilePictureUrl
     : `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.name || 'User')}&background=d97706&color=fff&size=128`;
 
   return (
@@ -190,11 +190,9 @@ const ProfilePage = () => {
         <div className="container max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           
           {/* Profile Header */}
-          <div className="bg-card border border-border rounded-3xl p-8 md:p-10 mb-12 shadow-sm relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3"></div>
-            
-            <div className="relative z-10 flex flex-col md:flex-row items-center md:items-start gap-8">
-              {/* Avatar with upload button */}
+          <div className="bg-card border border-border rounded-3xl p-8 md:p-10 mb-12 shadow-sm">
+            <div className="flex flex-col md:flex-row items-center md:items-start gap-8">
+              {/* Avatar */}
               <div className="relative group">
                 <img 
                   src={avatarUrl}
@@ -217,7 +215,6 @@ const ProfilePage = () => {
                   className="hidden"
                   onChange={handleUploadPicture}
                   disabled={isUploading}
-                  ref={fileInputRef}
                 />
                 {isUploading && (
                   <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center">
@@ -227,7 +224,7 @@ const ProfilePage = () => {
               </div>
               
               <div className="flex-1 text-center md:text-left">
-                <div className="inline-block px-3 py-1 bg-secondary/15 text-secondary-foreground text-xs font-bold rounded-full mb-3 tracking-widest uppercase">
+                <div className="inline-block px-3 py-1 bg-secondary/15 text-secondary-foreground text-xs font-bold rounded-full mb-3">
                   {currentUser.role || 'USER'}
                 </div>
                 <div className="flex items-center justify-center md:justify-start gap-2 mb-2">
